@@ -1,0 +1,74 @@
+----
+title: "Merge data from prophage analysis"
+author: "Prasanna Joglekar"
+date: "2024-68-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries}
+library(tidyverse)
+library(readxl)
+# library(amelia.theme)
+```
+
+```{r merge data with contig names and species names}
+f1 <- read_tsv("/Users/pjoglekar/work/pseudomonas/summarized_prophage_data/summarize_file.tsv")
+f2 <- read_tsv("/Users/pjoglekar/work/pseudomonas/pseudomonas_names.tsv")
+
+f3 <- left_join(f1, f2, by = c("accession_no" = "IMG Genome ID")) %>%
+  select(contig_id, everything())
+
+head(f3)
+write_tsv(f3, "/Users/pjoglekar/work/pseudomonas/summarized_prophage_data/summarize_file_with_species_names.tsv")
+```
+
+```{r merge data with virclust data}
+# Merge virclust data to the above table
+
+# Read the data
+fvc <- read_tsv("/Users/pjoglekar/work/pseudomonas/summarized_prophage_data/virDF.tsv") %>%
+  mutate(genome_name = str_extract(genome_name, "^[^_]+")) %>%
+  select(genome_cluster_ID, genome_name) %>%
+  group_by(genome_name) %>%
+  summarize(genome_cluster_ID = paste(genome_cluster_ID, collapse = ",")) %>%
+  rename(contig_id = genome_name, virclust_id = genome_cluster_ID)
+
+head(fvc)
+################################
+
+## Figure better way to doing this
+# #Since I am unable to add pivot the way I wanted and it is getting really hard, I will save this data, convert it to long format and then merge it with the f3 data
+
+# write_tsv(fvc, "/Users/pjoglekar/work/pseudomonas/summarized_prophage_data/virDF_wide.tsv")
+
+# # Read the data
+# fvc_long <- read_tsv("/Users/pjoglekar/work/pseudomonas/summarized_prophage_data/fvc_long.tsv", quote = "")
+
+# # View the final data
+# head(fvc_long)
+
+################################
+
+f3 <- left_join(f3, fvc, by = "contig_id")
+
+head(f3)
+```
+
+```{r merge data with pacloc output}
+fpd <- read_csv("/Users/pjoglekar/work/pseudomonas/summarized_prophage_data/phage_summary.csv") %>%
+  mutate(contig_id = str_extract(contig_id, "^[^_]+")) %>%
+  group_by(contig_id) %>%
+  summarise(Defense_system = paste(Defense_system, collapse = ","))
+
+head(fpd)
+
+write_tsv(fpd, "/Users/pjoglekar/work/pseudomonas/summarized_prophage_data/phage_defense_summarized.tsv")
+
+f3 <- left_join(f3, fpd, by = "contig_id")
+
+write_tsv(f3, "/Users/pjoglekar/work/pseudomonas/summarized_prophage_data/summarize_file_with_species_names_virclust_phage_defense.tsv")
+```
