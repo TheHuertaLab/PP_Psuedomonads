@@ -6,7 +6,7 @@ for dir in /Users/pjoglekar/work/software/shared_docker_image/phastest-docker/ph
     if [ -d "$dir" ]; then
         base=$(basename "$dir" | sed 's/_renamed//')
         src_file="$dir/region_DNA.txt"
-        dest_file="renamed_phasted_files/${base}_region_DNA.txt"
+        dest_file="renamed_phasted_files/${base}_region_DNA.fasta"
         
         if [ -f "$src_file" ]; then
             cp "$src_file" "$dest_file"
