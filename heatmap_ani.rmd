@@ -1,0 +1,61 @@
+----
+title: "heatmap from pyani for bacterial genomes"
+author: "Prasanna Joglekar"
+date: "2024-10-13"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries}
+library(tidyverse)
+library(pheatmap)
+library(reshape2)
+library(RColorBrewer)
+library(gplots)
+library(pheatmap)
+library(viridisLite)
+library(grid)
+library(ggcorrplot)
+```
+
+```{r load data}
+fname_ANI <- "/Users/pjoglekar/work/pseudomonas/pyani_out/Average_ANIm_percentage_identity.tsv"
+
+dat_ANI <- as.matrix(read.table(fname_ANI, header = T, sep = "\t", row.names = 1))
+
+hm1 <- pheatmap(dat_ANI,
+    cluster_rows = T,
+    cluster_cols = T,
+    show_colnames = T,
+    show_rownames = T,
+    fontsize_row = 3,
+    fontsize_col = 3,
+    color = colorRampPalette(brewer.pal(n = 9, "Greens"))(n = 25),
+    border_color = "white",
+    treeheight_row = 100,
+    treeheight_col = 0
+)
+
+hm1$gtable$grobs[[1]]$gp <- gpar(lwd = 2, col = "black", width = 8)
+
+
+ggsave("/Users/pjoglekar/work/pseudomonas/pyani_out/average_ANI_heatmap.png",
+    plot = hm1,
+    width = 12,
+    height = 12,
+    units = "in",
+    dpi = 500
+)
+
+ggsave("/Users/pjoglekar/work/pseudomonas/pyani_out/average_ANI_heatmap.pdf",
+    plot = hm1,
+    width = 12,
+    height = 12,
+    units = "in"
+)
+
+```
