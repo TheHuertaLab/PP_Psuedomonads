@@ -1,0 +1,216 @@
+---
+title: "Upset plots with Katies genome presence absence data"
+author: "Prasanna Joglekar"
+date: "2025-01-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load libraries}
+library(tidyverse)
+library(ComplexUpset)
+library(grid)
+library(ggtext)
+```
+
+#Modifying the data table using Katie code 
+
+```{r load data}
+# Read data
+kd_kim <- read.csv("/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/pan_out/gene_presence_absence.csv", header = TRUE, check.names = FALSE)
+
+# Retain only presence/absence columns
+kd_kim <- kd_kim[, -(1:3)]
+
+# Convert non-empty cells to 1 and empty/NA cells to 0
+kd_kim <- as.data.frame(lapply(kd_kim, function(x) {
+    as.integer(!is.na(x) & x != "")
+}))
+
+# Check structure of kd_kim
+str(kd_kim)
+
+# Assign column names to variable
+variable <- colnames(kd_kim)
+```
+
+```{r upset plot version1}
+# Set plot size
+set_size <- function(w, h, factor = 1.5) {
+    s <- 1 * factor
+    options(
+        repr.plot.width = w * s,
+        repr.plot.height = h * s,
+        repr.plot.res = 100 / factor,
+        jupyter.plot_mimetypes = "image/png",
+        jupyter.plot_scale = 1
+    )
+}
+
+
+set_size(18, 3)
+# Create UpSet plot with square matrix points of size 2
+up1 <- ComplexUpset::upset(
+    kd_kim,
+    intersect = variable, # Use 'intersect' for selecting sets
+    height_ratio = 0.98, # Intersection matrix takes 30% of the space
+    set_sizes = FALSE, # Disable set sizes bar chart
+    warn_when_dropping_groups = TRUE, # Warn if groups are dropped
+    matrix = (
+        intersection_matrix(
+            geom = geom_point( # Specify point geometry
+                # shape = "square",
+                size = 3.5
+            ),
+            segment = geom_segment( # Specify segment geometry
+                linetype = "dotted"
+            )
+        )
+    )
+)
+
+up1
+
+## Changing the name of the bacteria
+# Load new labels
+new_labels <- read.csv("/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/kim_upset_plot_amygdali/labels.csv", header = TRUE)
+
+# Replace column names with new labels if OldLabel matches column name in kd_kim
+colnames(kd_kim) <- sapply(colnames(kd_kim), function(x) {
+    if (x %in% new_labels$OldLabel) {
+        new_labels$NewLabel[new_labels$OldLabel == x]
+    } else {
+        x
+    }
+})
+
+# Will try to order the bacteria
+up14 <- ComplexUpset::upset(
+    kd_kim,
+    intersect = colnames(kd_kim), # Use custom order
+    # sort_sets = FALSE, # Disable auto-sorting
+    # min_size = 25,
+    set_sizes = FALSE,
+    height_ratio = 0.98,
+    warn_when_dropping_groups = TRUE,
+    keep_empty_groups = FALSE,
+    wrap = TRUE,
+    sort_intersections_by = "degree",
+    base_annotations = list(
+        "Intersection size" = intersection_size(
+            text = list(
+                vjust = 0.5,
+                hjust = -0.2,
+                angle = 90,
+                size = 6,
+                fontface = "bold"
+            )
+        ) +
+            theme(
+                axis.text.y = element_text(size = 15, face = "bold", color = "black"), # Increase Y-axis text size and make it bold
+                axis.title.y = element_text(size = 20, face = "bold", color = "black"), # Y-axis label bold & black
+                panel.grid = element_blank() # Remove grid lines
+            )
+    ),
+    matrix = intersection_matrix(
+        geom = geom_point(shape = "circle", size = 3.5),
+        segment = geom_segment(linetype = "dotted")
+    )
+)
+
+up14
+
+ggsave("/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/Rscript/kim_upset.svg", plot = up14, width = 12, height = 8, units = "in", dpi = 300)
+
+ggsave("/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/Rscript/kim_upset.png", plot = up14, width = 12, height = 8, units = "in", dpi = 300)
+
+
+up15 <- ComplexUpset::upset(
+    kd_kim,
+    intersect = colnames(kd_kim), # Use custom order
+    # sort_sets = FALSE, # Disable auto-sorting
+    # min_size = 25,
+    set_sizes = FALSE,
+    height_ratio = 0.98,
+    warn_when_dropping_groups = TRUE,
+    keep_empty_groups = FALSE,
+    wrap = TRUE,
+    # sort_intersections_by = "degree",
+    base_annotations = list(
+        "Intersection size" = intersection_size(
+            text = list(
+                vjust = 0.5,
+                hjust = -0.2,
+                angle = 90,
+                size = 6,
+                fontface = "bold"
+            )
+        ) +
+            theme(
+                axis.text.y = element_text(size = 15, face = "bold", color = "black"), # Increase Y-axis text size and make it bold
+                axis.title.y = element_text(size = 20, face = "bold", color = "black"), # Y-axis label bold & black
+                panel.grid = element_blank() # Remove grid lines
+            )
+    ),
+    matrix = intersection_matrix(
+        geom = geom_point(shape = "circle", size = 3.5),
+        segment = geom_segment(linetype = "dotted")
+    )
+)
+
+up15
+## Formatting strain names
+ggsave("/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/kim_upset_plot_amygdali/kim_upset2.svg", plot = up15, width = 12, height = 8, units = "in", dpi = 300)
+
+
+ggsave("/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/kim_upset_plot_amygdali/kim_upset2.png", plot = up15, width = 12, height = 8, units = "in", dpi = 300)
+```
+
+```{r extract regions of interest}
+# savinf original data
+sets <- colnames(kd_kim)
+
+# target bacteria i.e the bacteria I am interested in
+target <- "P. amygdali pv sesami AHP113"
+
+# all other bacteria
+others <- sets[sets != target]
+
+# Filter reads only present in bacteria on interest
+
+present_in_113_only <- which(kd_kim[[target]] == 1 & rowSums(kd_kim[others]) == 0)
+print(present_in_113_only)
+
+present_in_all_except_113 <- which(kd_kim[[target]] == 0 & rowSums(kd_kim[others]) == length(others))
+print(present_in_all_except_113)
+
+kd_kim2 <- read.csv("/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/pan_out/gene_presence_absence.csv", header = TRUE, check.names = FALSE)
+
+extracted_data_113_only <- kd_kim2[present_in_113_only, 1:3]
+
+write_tsv(extracted_data_113_only, "/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/kim_upset_plot_amygdali/extracted_data_113_only.tsv")
+
+extracted_data_not_113 <- kd_kim2[present_in_all_except_113, 1:3]
+
+write_tsv(extracted_data_not_113, "/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/kim_upset_plot_amygdali/extracted_data_not_113.tsv")
+
+##Genes not present in AHP108
+target_108 <- "P. amygdali pv sesami AHP108"
+not_present_in_108_only <- which(kd_kim[[target_108]] == 0 & rowSums(kd_kim[others]) == 1)
+print(not_present_in_108_only
+extracted_data_not_present_in_108 <- kd_kim2[not_present_in_108_only, 1:3]
+write_tsv(extracted_data_not_present_in_108, "/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/kim_upset_plot_amygdali/extracted_data_not_present_in_108.tsv")
+
+
+####Genes not present in AHP109
+target_109 <- "P. amygdali pv sesami AHP109"
+not_present_in_109_only <- which(kd_kim[[target_109]] == 0 & rowSums(kd_kim[others]) == 1)
+print(not_present_in_109_only)
+extracted_data_not_present_in_109 <- kd_kim2[not_present_in_109_only, 1:3]
+write_tsv(extracted_data_not_present_in_109, "/Users/pjoglekar/work/pseudomonas/pseudomonas_data_from_all_genomes/PJ_Pas_AssemFlye/figure_kim/kim_upset_plot_amygdali/extracted_data_not_present_in_109.tsv")
+```
+
