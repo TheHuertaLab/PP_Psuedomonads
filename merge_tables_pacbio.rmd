@@ -1,0 +1,89 @@
+----
+title: "Merge data from prophage and padloc analysis for PacBio genomes"
+author: "Prasanna Joglekar"
+date: "2024-12-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries}
+library(tidyverse)
+library(readxl)
+# library(amelia.theme)
+```
+
+```{r merge data with pacloc output}
+fpd <- read_csv("/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/pacbio_padloc_summary_2.csv") %>%
+  mutate(contig_id = str_extract(contig_id, "^[^_]+_[^_]+")) %>%
+  group_by(contig_id) %>%
+  summarise(Defense_system = paste(Defense_system, collapse = ","))
+
+head(fpd)
+
+write_tsv(fpd, "/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/padloc_phage_collapsed_summary.tsv")
+
+f1 <- read_tsv("/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/converged_summary_table.tsv")
+
+f1 <- left_join(f1, fpd, by = "contig_id")
+
+head(f1)
+
+# initial summary file with species names and padloc data
+
+write_tsv(f1, "/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/converged_summary_padloc.tsv")
+```
+
+
+
+```{r merge data with virclust output}
+# The virclust output has 1) genome_cluster_ID and 2) genome_name
+# The genomes are also named as "organism_phastest_contig_1" etc
+# The below will first change the genome names to match the genomes names in file f1
+# it will change headers to contig_id and virclust_id
+# It will merge this fiel with f1 (need to be gerenated in the previous chunk) to get the final file and save it in various forms
+
+fvc <- read_tsv("/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/virclust/virclust_out2/04a-06a_genome_clustering_PC/05/virDF.tsv") %>%
+  select(genome_cluster_ID, genome_name) %>%
+  group_by(genome_name) %>%
+  rename(contig_id = genome_name, virclust_id = genome_cluster_ID) %>%
+  mutate(contig_id = str_extract(contig_id, "^[^_]+_[^_]+")) %>%
+  mutate(contig_id = str_replace(contig_id, "phastest", "assembly")) %>%
+  summarize(virclust_id = paste(virclust_id, collapse = ","))
+
+head(fvc)
+
+write_tsv(fvc, "/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/virclust_phage_collapsed_summary.tsv")
+
+f1 <- left_join(f1, fvc, by = "contig_id")
+# this will add both virclust and padloc data only if the previous chunk is run properly
+
+head(f1)
+
+# initial summary file with species names and padloc data
+
+write_tsv(f1, "/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/converged_summary_padloc_virclust.tsv")
+```
+
+```{r merge data with phage padloc output}
+fpd2 <- read_csv("/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/padloc_pacbio_summary.csv") %>%
+  mutate(contig_id = str_extract(contig_id, "^[^_]+_[^_]+")) %>%
+  group_by(contig_id) %>%
+  summarise(Defense_system = paste(Defense_system, collapse = ","))
+
+head(fpd2)
+
+write_tsv(fpd2, "/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/padloc_phage_phage_collapsed_summary.tsv")
+
+f1 <- read_tsv("/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/converged_summary_table.tsv")
+
+f1 <- left_join(f1, fpd, by = "contig_id")
+
+head(f1)
+
+# initial summary file with species names and padloc data
+
+write_tsv(f1, "/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/summary_files/converged_summary_padloc.tsv")
+```
