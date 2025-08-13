@@ -1,15 +1,16 @@
 #!/bin/bash
 
-source /Users/pjoglekar/miniconda3/etc/profile.d/conda.sh
+source /Users/pjoglekar/miniforge3/etc/profile.d/conda.sh
 
-conda activate padloc
+conda activate /Users/pjoglekar/miniconda3/envs/padloc_env
+
 dir=$1
 
-for file in $dir; 
+for file in $dir/*.fna; 
 do
-mkdir $(basename $file | sed 's/.fasta/_padloc2_out/'); 
-out=$(basename $file | sed 's/.fasta/_padloc2_out/');
-padloc --fna $file --outdir $out --cpu 8;
+mkdir $(basename $file | sed 's/.fna/_padloc2_out/'); 
+out=$(basename $file | sed 's/.fna/_padloc2_out/');
+padloc --fna $file --outdir $out --cpu 16;
 
 done
 

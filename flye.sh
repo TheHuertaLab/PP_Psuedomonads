@@ -18,6 +18,8 @@ conda activate flye_env #activates flye environment
 
 dir=$1 
 
+#path to fastq files from pacbio
+
 echo "$dir"
 
 mkdir -p $dir/flye_assemblies
@@ -28,7 +30,7 @@ for file in $dir/*.fastq.gz; do
     echo "$file"
     base=$(basename $file | sed 's/.fastq.gz//')
 
-    flye --pacbio-hifi $file --out-dir $out/$base --genome-size 6.5m --threads 20
+    flye --pacbio-hifi $file --out-dir $out/$base --genome-size 6m --plasmids  --threads 16 -i 5
 done
 
 flye --version

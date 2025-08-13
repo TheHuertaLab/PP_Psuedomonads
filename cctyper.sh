@@ -13,13 +13,13 @@ mkdir -p $dir2
 for f in $dir/*.fasta
 do
   base=$(basename "$f")
-  out=$(echo "$base" | sed 's/.fasta/_cctyper_out/g')
+  out=$(echo "$base" | sed 's/_renamed.fasta/_cctyper_out/g')
   
   echo "Input file: $f"
   echo "Base name: $base"
   echo "Output name: $out"
   
-  command="cctyper $f $dir2/$out -t 10 --simplelog"
+  command="cctyper $f $dir2/$out -t 20 --simplelog"
   echo "Command: $command"
   
   # Uncomment the line below if everything looks correct

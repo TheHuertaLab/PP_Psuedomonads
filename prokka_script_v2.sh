@@ -14,8 +14,7 @@ do
   base_name=$(basename "$fasta_file" .fasta)
   
   # Run Prokka annotation
-  prokka --outdir "$output_dir/$base_name" --prefix "$base_name" "$fasta_file"
-
+  prokka --outdir "$output_dir/$base_name" --prefix "$base_name" "$fasta_file" --cpus 15 --force
   mkdir -p "$output_dir"/prokka_gff_files
 
   for f in "$output_dir/$base_name"/*.gff; do
@@ -23,4 +22,5 @@ do
   done  
 done
 
+prokka --version
 conda deactivate

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-mkdir -p RenamedFastaFiles
+mkdir -p pseudomonas_renamed_genomes
 
 dir=$1
 
@@ -8,11 +8,12 @@ for file in $dir/*.fasta; do
 
     echo "$file"
     base=$(basename "$file" | sed 's/.fasta//')
+    echo "$base"
 
-    out="$base"_renamed 
+    out="$base" 
     echo "$out"
     
-    awk '/^>/ {print ">'$base'_contig_" ++i; next} {print}' $file > RenamedFastaFiles/"$base"_renamed.fasta
+    awk '/^>/ {print ">'$base'_contig_" ++i; next} {print}' $file > pseudomonas_renamed_genomes/"$base".fasta
 
     
 done

@@ -4,9 +4,9 @@ mkdir -p renamed_phasted_files
 
 for dir in /Users/pjoglekar/work/software/shared_docker_image/phastest-docker/phastest-app-docker/JOBS/*; do
     if [ -d "$dir" ]; then
-        base=$(basename "$dir" | sed 's/_renamed//')
+        base=$(basename "$dir" | sed 's/_assembly//' | sed 's/_renamed/_phastest/')
         src_file="$dir/region_DNA.txt"
-        dest_file="renamed_phasted_files/${base}_region_DNA.fasta"
+        dest_file="renamed_phasted_files/${base}.fasta"
         
         if [ -f "$src_file" ]; then
             cp "$src_file" "$dest_file"
