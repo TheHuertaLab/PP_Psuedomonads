@@ -6,9 +6,6 @@
 library(phytools)
 library(ape)
 library(geiger)
-library(tidyverse)
-library(doParallel)
-library(foreach)
 
 # Load tree and data
 tree <- read.newick("/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/statistical_analysis/core_gene_alignment_filtered_align2.newick")
@@ -53,76 +50,81 @@ td <- treedata(tree, data_filtered)
 tree_td <- td$phy
 data_td <- td$data
 
-results <- data.frame(systemA = character(), systemB = character(), p_indep_vs_dep = numeric(), best_model = character(), flux_cooccur = numeric(), flux_neg = numeric(), p_adj_bonf = numeric(), p_adj_bh = numeric())
-p_values <- numeric()
+rds_file <- "cooccurrence_results.rds"
 
-data_td_12 <- data_td + 1
+if (file.exists(rds_file)) {
+    cat("Loading previous results from RDS file...\n")
+    results <- readRDS(rds_file)
+    cat("Loaded", nrow(results), "pairs from RDS.\n")
+} else {
+    results <- data.frame(systemA = character(), systemB = character(), p_indep_vs_dep = numeric(), best_model = character(), flux_cooccur = numeric(), flux_neg = numeric(), p_adj_bonf = numeric(), p_adj_bh = numeric())
+    p_values <- numeric()
+    data_td_12 <- data_td + 1
+    total <- (length(systems) - 1) * length(systems) / 2
+    counter <- 0
 
-total <- (length(systems) - 1) * length(systems) / 2
-counter <- 0
+    cat("Starting co-occurrence analysis for", total, "system pairs...\n")
 
-cat("Starting co-occurrence analysis for", total, "system pairs...\n")
+    for (i in 1:(length(systems) - 1)) {
+        for (j in (i + 1):length(systems)) {
+            counter <- counter + 1
+            cat(sprintf("Processing pair %d/%d: %s vs %s\n", counter, total, systems[i], systems[j]))
 
-for (i in 1:(length(systems) - 1)) {
-    for (j in (i + 1):length(systems)) {
-        counter <- counter + 1
-        cat(sprintf("Processing pair %d/%d: %s vs %s\n", counter, total, systems[i], systems[j]))
+            A <- data_td_12[, systems[i]]
+            B <- data_td_12[, systems[j]]
 
-        A <- data_td_12[, systems[i]]
-        B <- data_td_12[, systems[j]]
+            fit_indep <- fitDiscrete(tree_td, cbind(A, B), model = "ARD", ncores = 16)
+            fit_dep <- fitPagel(tree_td, A, B, model = "ARD")
+            fit_A_on_B <- fitPagel(tree_td, A, B, dep.var = "x")
+            fit_B_on_A <- fitPagel(tree_td, A, B, dep.var = "y")
 
-        # Fit models using treedata-matched tree and data
-        fit_indep <- fitDiscrete(tree_td, cbind(A, B), model = "ARD", ncores = 16)
-        fit_dep <- fitPagel(tree_td, A, B, model = "ARD")
-        fit_A_on_B <- fitPagel(tree_td, A, B, dep.var = "x")
-        fit_B_on_A <- fitPagel(tree_td, A, B, dep.var = "y")
+            p_indep_vs_dep <- NA
+            if (!is.null(fit_indep$AIC) && !is.null(fit_dep$AIC)) {
+                p_indep_vs_dep <- fit_dep$AIC - fit_indep$AIC
+            }
+            p_values <- c(p_values, p_indep_vs_dep)
 
-        # Compare independent vs. dependent using AIC difference
-        p_indep_vs_dep <- NA
-        if (!is.null(fit_indep$AIC) && !is.null(fit_dep$AIC)) {
-            p_indep_vs_dep <- fit_dep$AIC - fit_indep$AIC
-        }
-        p_values <- c(p_values, p_indep_vs_dep)
+            if (!is.na(p_indep_vs_dep) && p_indep_vs_dep < -2) {
+                aic_values <- c(fit_dep$AIC, fit_A_on_B$AIC, fit_B_on_A$AIC)
+                best_model_idx <- which.min(aic_values)
+                best_model <- c("dependent", "A_on_B", "B_on_A")[best_model_idx]
+                best_fit <- list(fit_dep, fit_A_on_B, fit_B_on_A)[[best_model_idx]]
 
-        if (!is.na(p_indep_vs_dep) && p_indep_vs_dep < -2) {
-            aic_values <- c(fit_dep$AIC, fit_A_on_B$AIC, fit_B_on_A$AIC)
-            best_model_idx <- which.min(aic_values)
-            best_model <- c("dependent", "A_on_B", "B_on_A")[best_model_idx]
-            best_fit <- list(fit_dep, fit_A_on_B, fit_B_on_A)[[best_model_idx]]
+                if (!is.null(best_fit$fit) && !is.null(best_fit$fit$rates)) {
+                    rates <- best_fit$fit$ratestop
+                    q01 <- rates["q13"]
+                    q10 <- rates["q12"]
+                    q11_from01 <- rates["q34"]
+                    q11_from10 <- rates["q24"]
+                    q00_from01 <- rates["q31"]
+                    q00_from10 <- rates["q21"]
+                    q01_from11 <- rates["q43"]
+                    q10_from11 <- rates["q42"]
 
-            if (!is.null(best_fit$fit) && !is.null(best_fit$fit$rates)) {
-                rates <- best_fit$fit$ratestop
-                q01 <- rates["q13"]
-                q10 <- rates["q12"]
-                q11_from01 <- rates["q34"]
-                q11_from10 <- rates["q24"]
-                q00_from01 <- rates["q31"]
-                q00_from10 <- rates["q21"]
-                q01_from11 <- rates["q43"]
-                q10_from11 <- rates["q42"]
+                    flux_cooccur <- (q11_from01 / q01_from11) + (q11_from10 / q10_from11)
+                    flux_neg <- (q01 / q00_from01) + (q10 / q00_from10)
 
-                flux_cooccur <- (q11_from01 / q01_from11) + (q11_from10 / q10_from11)
-                flux_neg <- (q01 / q00_from01) + (q10 / q00_from10)
+                    results <- rbind(results, data.frame(systemA = systems[i], systemB = systems[j], p_indep_vs_dep = p_indep_vs_dep, best_model = best_model, flux_cooccur = flux_cooccur, flux_neg = flux_neg, p_adj_bonf = NA, p_adj_bh = NA))
+                } else {
+                    cat(sprintf("Rates not found for %s vs %s - skipping.\n", systems[i], systems[j]))
+                }
+            }
 
-                results <- rbind(results, data.frame(systemA = systems[i], systemB = systems[j], p_indep_vs_dep = p_indep_vs_dep, best_model = best_model, flux_cooccur = flux_cooccur, flux_neg = flux_neg, p_adj_bonf = NA, p_adj_bh = NA))
-            } else {
-                cat(sprintf("Rates not found for %s vs %s - skipping.\n", systems[i], systems[j]))
+            if (counter %% 10 == 0) {
+                cat(sprintf("Heartbeat: %d pairs processed...\n", counter))
             }
         }
-
-        # Print a heartbeat every 10 pairs
-        if (counter %% 10 == 0) {
-            cat(sprintf("Heartbeat: %d pairs processed...\n", counter))
-        }
     }
+
+    cat("Analysis complete. Processed", counter, "pairs.\n")
+    saveRDS(results, rds_file)
+    cat("Results saved to", rds_file, "\n")
 }
 
-cat("Analysis complete. Processed", counter, "pairs.\n")
-
 # Export data
-if (length(p_values) > 0 && nrow(results) > 0) {
-    results$p_adj_bonf <- p.adjust(p_values, method = "bonferroni")
-    results$p_adj_bh <- p.adjust(p_values, method = "BH")
+if (exists("results") && nrow(results) > 0) {
+    results$p_adj_bonf <- p.adjust(results$p_indep_vs_dep, method = "bonferroni")
+    results$p_adj_bh <- p.adjust(results$p_indep_vs_dep, method = "BH")
     write.csv(results, "cooccurrence_results.csv", row.names = FALSE)
     cat("Results saved to cooccurrence_results.csv\n")
 } else {
