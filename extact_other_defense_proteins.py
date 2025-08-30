@@ -83,4 +83,3 @@ defense_protein_names = [
 
 extract_proteins_from_all_files(parent_dir, output_dir, defense_protein_names)
 
-#check updates
