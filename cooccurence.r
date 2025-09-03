@@ -117,7 +117,7 @@ if (file.exists(rds_file)) {
     total <- (length(systems) - 1) * length(systems) / 2
     cat("Starting co-occurrence analysis for", total, "system pairs...\n")
 
-    n_cores <- parallel::detectCores() - 1
+    n_cores <- 2 # Use fewer cores for testing
     cl <- makeCluster(n_cores)
     registerDoParallel(cl)
 
@@ -132,15 +132,92 @@ if (file.exists(rds_file)) {
                         A <- data_td[, systems[i]]
                         B <- data_td[, systems[j]]
 
-                        fit_indep <- fitDiscrete(tree_td, cbind(A, B), model = "ARD", control = list(niter = 1000, fail = 1e-8))
-                        fit_dep <- fitPagel(tree_td, A, B, model = "ARD", control = list(niter = 1000, fail = 1e-8))
-                        fit_A_on_B <- fitPagel(tree_td, A, B, dep.var = "x", control = list(niter = 1000, fail = 1e-8))
-                        fit_B_on_A <- fitPagel(tree_td, A, B, dep.var = "y", control = list(niter = 1000, fail = 1e-8))
+                        # Check if we have all 4 possible states
+                        combined <- paste(A, B, sep = ":")
+                        state_counts <- table(combined)
+                        if (length(state_counts) < 3) {
+                            # Skip pairs with too few states
+                            return(data.frame(
+                                systemA = systems[i],
+                                systemB = systems[j],
+                                p_indep_vs_dep = NA,
+                                best_model = "insufficient_states",
+                                flux_cooccur = NA,
+                                flux_neg = NA,
+                                association = NA,
+                                p_adj_bonf = NA,
+                                p_adj_bh = NA
+                            ))
+                        }
+
+                        # Fit models with more conservative settings
+                        # Create multistate character for independent model
+                        combined <- paste(A, B, sep = ":")
+                        unique_states <- sort(unique(combined))
+                        combined_states <- as.numeric(factor(combined, levels = unique_states))
+                        names(combined_states) <- rownames(data_td)
+
+                        fit_indep <- tryCatch(
+                            {
+                                fitDiscrete(tree_td, combined_states,
+                                    model = "ER",
+                                    control = list(niter = 500, fail = 1e-6)
+                                )
+                            },
+                            error = function(e) NULL
+                        )
+
+                        fit_dep <- tryCatch(
+                            {
+                                fitPagel(tree_td, A, B,
+                                    model = "ARD"
+                                )
+                            },
+                            error = function(e) NULL
+                        )
+
+                        # Check if basic models fitted successfully
+                        if (is.null(fit_indep) || is.null(fit_dep)) {
+                            return(data.frame(
+                                systemA = systems[i],
+                                systemB = systems[j],
+                                p_indep_vs_dep = NA,
+                                best_model = "model_failed",
+                                flux_cooccur = NA,
+                                flux_neg = NA,
+                                association = NA,
+                                p_adj_bonf = NA,
+                                p_adj_bh = NA
+                            ))
+                        }
+
+                        fit_A_on_B <- tryCatch(
+                            {
+                                fitPagel(tree_td, A, B, dep.var = "x")
+                            },
+                            error = function(e) NULL
+                        )
+
+                        fit_B_on_A <- tryCatch(
+                            {
+                                fitPagel(tree_td, A, B, dep.var = "y")
+                            },
+                            error = function(e) NULL
+                        )
 
                         p_indep_vs_dep <- NA
-                        if (!is.null(fit_indep$opt$lnL) && !is.null(fit_dep$opt$lnL)) {
-                            lr_stat <- 2 * (fit_dep$opt$lnL - fit_indep$opt$lnL)
-                            p_indep_vs_dep <- pchisq(lr_stat, df = 4, lower.tail = FALSE)
+                        if (!is.null(fit_indep) && !is.null(fit_dep)) {
+                            # For fitDiscrete, use fit_indep$opt$lnL
+                            # For fitPagel, use the P value directly or calculate from logL values
+                            if (!is.null(fit_dep$P)) {
+                                p_indep_vs_dep <- fit_dep$P
+                            } else if (!is.null(fit_indep$opt$lnL) && !is.null(fit_dep$independent.logL) &&
+                                is.finite(fit_indep$opt$lnL) && is.finite(fit_dep$independent.logL)) {
+                                lr_stat <- 2 * (fit_dep$dependent.logL - fit_indep$opt$lnL)
+                                if (is.finite(lr_stat) && lr_stat >= 0) {
+                                    p_indep_vs_dep <- pchisq(lr_stat, df = 4, lower.tail = FALSE)
+                                }
+                            }
                         }
 
                         best_model <- NA
@@ -149,32 +226,20 @@ if (file.exists(rds_file)) {
                         association <- NA
 
                         if (!is.na(p_indep_vs_dep) && p_indep_vs_dep < 0.01) {
-                            aic_values <- c(fit_dep$opt$aic, fit_A_on_B$opt$aic, fit_B_on_A$opt$aic)
-                            best_model_idx <- which.min(aic_values)
-                            best_model <- c("dependent", "A_on_B", "B_on_A")[best_model_idx]
-                            best_fit <- list(fit_dep, fit_A_on_B, fit_B_on_A)[[best_model_idx]]
+                            # For fitPagel, the dependent model is the main result
+                            best_model <- "dependent"
+                            association <- "significant"
 
-                            if (!is.null(best_fit$fit) && !is.null(best_fit$fit$rates)) {
-                                rates <- best_fit$fit$rates
-                                required_rates <- c("q12", "q21", "q13", "q24", "q31", "q42", "q43", "q14")
-                                missing_rates <- setdiff(required_rates, names(rates))
-                                if (length(missing_rates) > 0) {
-                                    cat(sprintf("[%s] Missing rates: %s\n", step, paste(missing_rates, collapse = ", ")), file = warning_log, append = TRUE)
-                                }
-                                # Adjusted for fitPagel rate naming (0/1 coding)
-                                q01 <- ifelse(exists("q13", rates), rates["q13"], NA) # (0,0) -> (0,1)
-                                q10 <- ifelse(exists("q12", rates), rates["q12"], NA) # (0,0) -> (1,0)
-                                q11_from01 <- ifelse(exists("q34", rates), rates["q34"], NA) # (0,1) -> (1,1)
-                                q11_from10 <- ifelse(exists("q24", rates), rates["q24"], NA) # (1,0) -> (1,1)
-                                q00_from01 <- ifelse(exists("q31", rates), rates["q31"], NA) # (0,1) -> (0,0)
-                                q00_from10 <- ifelse(exists("q21", rates), rates["q21"], NA) # (1,0) -> (0,0)
-                                q01_from11 <- ifelse(exists("q43", rates), rates["q43"], NA) # (1,1) -> (0,1)
-                                q10_from11 <- ifelse(exists("q42", rates), rates["q42"], NA) # (1,1) -> (1,0)
+                            # Try to get additional models for comparison if they exist
+                            if (!is.null(fit_A_on_B) && !is.null(fit_B_on_A)) {
+                                aic_dep <- ifelse(!is.null(fit_dep$dependent.AIC), fit_dep$dependent.AIC, NA)
+                                aic_A_on_B <- ifelse(!is.null(fit_A_on_B$dependent.AIC), fit_A_on_B$dependent.AIC, NA)
+                                aic_B_on_A <- ifelse(!is.null(fit_B_on_A$dependent.AIC), fit_B_on_A$dependent.AIC, NA)
 
-                                if (all(!is.na(c(q11_from01, q01_from11, q11_from10, q10_from11, q01, q00_from01, q10, q00_from10)))) {
-                                    flux_cooccur <- (q11_from01 / q01_from11) + (q11_from10 / q10_from11)
-                                    flux_neg <- (q01 / q00_from01) + (q10 / q00_from10)
-                                    association <- ifelse(flux_cooccur > flux_neg, "cooccur", "negative")
+                                if (all(is.finite(c(aic_dep, aic_A_on_B, aic_B_on_A)))) {
+                                    aic_values <- c(aic_dep, aic_A_on_B, aic_B_on_A)
+                                    best_model_idx <- which.min(aic_values)
+                                    best_model <- c("dependent", "A_on_B", "B_on_A")[best_model_idx]
                                 }
                             }
                         }
