@@ -1,7 +1,7 @@
 # Co-occurrence Analysis of Prophages and Defense Systems
 # Author: Prasanna Joglekar
-# Date: 2025-09-03
-# Fixed version with proper fitPagel handling
+# Date: 2025-09-04
+# Updated with A-on-B, B-on-A models, flux calculations, and Code 2 data points, without visualizations
 
 # Load required libraries
 library(phytools)
@@ -9,10 +9,13 @@ library(ape)
 library(geiger)
 library(foreach)
 library(doParallel)
+library(stringr)
+library(dplyr)
+library(tidyr)
 
+setwd("/Users/pjoglekar/work/pseudomonas/Pseudomonas_data_from_selected_genomes/pacbio_genomes/statistical_analysis")
 # Set up warning logging
 warning_log <- "cooccurrence_warnings.log"
-if (file.exists(warning_log)) file.remove(warning_log)
 log_warning <- function(w, step) {
     msg <- paste0("[", step, "] ", conditionMessage(w), "\n")
     cat(msg, file = warning_log, append = TRUE)
@@ -60,18 +63,14 @@ data_td <- td$data
 # Fix order mismatch after treedata
 if (!identical(rownames(data_td), tree_td$tip.label)) {
     cat("Order mismatch detected. Reordering data to match tree...\n")
-    # Check if all genomes are present
     missing_in_tree <- setdiff(rownames(data_td), tree_td$tip.label)
     missing_in_data <- setdiff(tree_td$tip.label, rownames(data_td))
-
     if (length(missing_in_tree) > 0 || length(missing_in_data) > 0) {
         cat("Content mismatch after treedata:\n")
         cat("In data_td but not tree_td:", missing_in_tree, "\n")
         cat("In tree_td but not data_td:", missing_in_data, "\n")
         stop("Some genomes in data_td not found in tree_td after treedata!")
     }
-
-    # Reorder data to match tree tip labels
     data_td <- data_td[tree_td$tip.label, , drop = FALSE]
 }
 
@@ -86,18 +85,10 @@ if (!identical(rownames(data_td), tree_td$tip.label)) {
 # Convert traits to 1/2 coding for fitPagel and fitDiscrete (required by geiger package)
 data_td <- data_td + 1
 
-# Remove invariant systems (all 1 or all 2)
-variable_systems <- systems[apply(data_td, 2, function(x) length(unique(x)) > 1)]
-data_td <- data_td[, variable_systems, drop = FALSE]
-systems <- variable_systems
-cat("Variable systems after removing invariants:", length(systems), "\n")
-
 # Parallelized pairwise comparisons
 rds_file <- "cooccurrence_results.rds"
 progress_log <- "progress.log"
 warning_log <- "cooccurrence_warnings.log"
-if (file.exists(progress_log)) file.remove(progress_log)
-if (file.exists(warning_log)) file.remove(warning_log)
 
 if (file.exists(rds_file)) {
     cat("Loading previous results from RDS file...\n")
@@ -111,7 +102,7 @@ if (file.exists(rds_file)) {
     cl <- makeCluster(n_cores)
     registerDoParallel(cl)
 
-    results <- foreach(i = 1:(length(systems) - 1), .combine = rbind, .packages = c("phytools", "ape", "geiger")) %:%
+    results <- foreach(i = 1:(length(systems) - 1), .combine = rbind, .packages = c("phytools", "ape", "geiger", "stringr", "dplyr", "tidyr")) %:%
         foreach(j = (i + 1):length(systems), .combine = rbind) %dopar% {
             step <- sprintf("Co-occurrence analysis: %s vs %s", systems[i], systems[j])
             cat(sprintf("Processing pair: %s vs %s\n", systems[i], systems[j]), file = progress_log, append = TRUE)
@@ -136,12 +127,15 @@ if (file.exists(rds_file)) {
                         cat(state_msg, "\n", file = warning_log, append = TRUE)
 
                         if (length(state_counts) < 3) {
-                            # Skip pairs with too few states
                             return(data.frame(
                                 systemA = systems[i],
                                 systemB = systems[j],
                                 p_indep_vs_dep = NA,
+                                p_A_on_B = NA,
+                                p_B_on_A = NA,
                                 best_model = "insufficient_states",
+                                flux_cooccur = NA,
+                                flux_neg = NA,
                                 association = NA,
                                 p_adj_bonf = NA,
                                 p_adj_bh = NA
@@ -171,7 +165,11 @@ if (file.exists(rds_file)) {
                                 systemA = systems[i],
                                 systemB = systems[j],
                                 p_indep_vs_dep = NA,
+                                p_A_on_B = NA,
+                                p_B_on_A = NA,
                                 best_model = "model_failed",
+                                flux_cooccur = NA,
+                                flux_neg = NA,
                                 association = NA,
                                 p_adj_bonf = NA,
                                 p_adj_bh = NA
@@ -184,20 +182,102 @@ if (file.exists(rds_file)) {
                             p_indep_vs_dep <- fit_dep$P
                         }
 
-                        # Determine best model and association
+                        # Initialize additional outputs
+                        p_A_on_B <- NA
+                        p_B_on_A <- NA
                         best_model <- "independent"
+                        flux_cooccur <- NA
+                        flux_neg <- NA
                         association <- "not_significant"
 
+                        # Always fit A-on-B and B-on-A models and report their p-values
+                        fit_A_on_B <- tryCatch(
+                            fitPagel(tree_td, A, B, dep.var = "x", model = "ARD"),
+                            error = function(e) NULL
+                        )
+                        fit_B_on_A <- tryCatch(
+                            fitPagel(tree_td, A, B, dep.var = "y", model = "ARD"),
+                            error = function(e) NULL
+                        )
+                        if (!is.null(fit_A_on_B) && !is.null(fit_A_on_B$P)) {
+                            p_A_on_B <- fit_A_on_B$P
+                        } else {
+                            cat(sprintf("[A_on_B] Model fit failed or no p-value for %s vs %s\n", systems[i], systems[j]), file = warning_log, append = TRUE)
+                        }
+                        if (!is.null(fit_B_on_A) && !is.null(fit_B_on_A$P)) {
+                            p_B_on_A <- fit_B_on_A$P
+                        } else {
+                            cat(sprintf("[B_on_A] Model fit failed or no p-value for %s vs %s\n", systems[i], systems[j]), file = warning_log, append = TRUE)
+                        }
+
+                        # Only update best_model and association if main model is significant
                         if (!is.na(p_indep_vs_dep) && p_indep_vs_dep < 0.05) {
-                            best_model <- "dependent"
+                            aic_values <- c(
+                                fit_dep$opt$aic,
+                                if (!is.null(fit_A_on_B) && !is.null(fit_A_on_B$opt$aic)) fit_A_on_B$opt$aic else Inf,
+                                if (!is.null(fit_B_on_A) && !is.null(fit_B_on_A$opt$aic)) fit_B_on_A$opt$aic else Inf
+                            )
+                            best_model_idx <- which.min(aic_values)
+                            best_model <- c("dependent", "A_on_B", "B_on_A")[best_model_idx]
+                            best_fit <- list(fit_dep, fit_A_on_B, fit_B_on_A)[[best_model_idx]]
                             association <- "significant"
+
+                            # Flux calculations
+                            if (best_model != "independent" && !is.null(best_fit$fit$rates)) {
+                                rates <- best_fit$fit$rates
+                                # Adjusted for fitPagel rate naming with 1/2 coding
+                                q01 <- ifelse(exists("q13", rates), rates["q13"], NA) # (1,1) -> (1,2)
+                                q10 <- ifelse(exists("q12", rates), rates["q12"], NA) # (1,1) -> (2,1)
+                                q11_from01 <- ifelse(exists("q34", rates), rates["q34"], NA) # (1,2) -> (2,2)
+                                q11_from10 <- ifelse(exists("q24", rates), rates["q24"], NA) # (2,1) -> (2,2)
+                                q00_from01 <- ifelse(exists("q31", rates), rates["q31"], NA) # (1,2) -> (1,1)
+                                q00_from10 <- ifelse(exists("q21", rates), rates["q21"], NA) # (2,1) -> (1,1)
+                                q01_from11 <- ifelse(exists("q43", rates), rates["q43"], NA) # (2,2) -> (1,2)
+                                q10_from11 <- ifelse(exists("q42", rates), rates["q42"], NA) # (2,2) -> (2,1)
+                                if (all(!is.na(c(q11_from01, q01_from11, q11_from10, q10_from11, q01, q00_from01, q10, q00_from10)))) {
+                                    flux_cooccur <- (q11_from01 / q01_from11) + (q11_from10 / q10_from11)
+                                    flux_neg <- (q01 / q00_from01) + (q10 / q00_from10)
+                                    association <- ifelse(flux_cooccur > flux_neg, "cooccur", "negative")
+                                }
+                            }
+
+                            # Detailed outputs for significant pairs (p < 0.01, matching Code 2)
+                            if (p_indep_vs_dep < 0.01) {
+                                imod <- str_replace(systems[i], "/", "_")
+                                jmod <- str_replace(systems[j], "/", "_")
+                                dirfordetails <- paste0("results_", imod, "_", jmod)
+                                if (!dir.exists(dirfordetails)) {
+                                    dir.create(dirfordetails)
+                                }
+                                # Save transition matrices
+                                if (!is.null(fit_dep$dependent.Q)) {
+                                    write.csv(fit_dep$dependent.Q, file = paste0(dirfordetails, "/", imod, "_", jmod, "_dependent.matrix"), quote = FALSE)
+                                }
+                                if (!is.null(fit_A_on_B) && !is.null(fit_A_on_B$dependent.Q)) {
+                                    write.csv(fit_A_on_B$dependent.Q, file = paste0(dirfordetails, "/", imod, "_", jmod, "_", imod, "_dependent.matrix"), quote = FALSE)
+                                }
+                                if (!is.null(fit_B_on_A) && !is.null(fit_B_on_A$dependent.Q)) {
+                                    write.csv(fit_B_on_A$dependent.Q, file = paste0(dirfordetails, "/", imod, "_", jmod, "_", jmod, "_dependent.matrix"), quote = FALSE)
+                                }
+                                # Save model output
+                                modeloutput <- paste0(dirfordetails, "/", imod, "_", jmod, "_model.output")
+                                sink(modeloutput)
+                                print(fit_dep)
+                                if (!is.null(fit_A_on_B)) print(fit_A_on_B)
+                                if (!is.null(fit_B_on_A)) print(fit_B_on_A)
+                                sink()
+                            }
                         }
 
                         data.frame(
                             systemA = systems[i],
                             systemB = systems[j],
                             p_indep_vs_dep = p_indep_vs_dep,
+                            p_A_on_B = p_A_on_B,
+                            p_B_on_A = p_B_on_A,
                             best_model = best_model,
+                            flux_cooccur = flux_cooccur,
+                            flux_neg = flux_neg,
                             association = association,
                             p_adj_bonf = NA,
                             p_adj_bh = NA
@@ -212,7 +292,11 @@ if (file.exists(rds_file)) {
                         systemA = systems[i],
                         systemB = systems[j],
                         p_indep_vs_dep = NA,
+                        p_A_on_B = NA,
+                        p_B_on_A = NA,
                         best_model = "error",
+                        flux_cooccur = NA,
+                        flux_neg = NA,
                         association = NA,
                         p_adj_bonf = NA,
                         p_adj_bh = NA
@@ -230,7 +314,6 @@ if (file.exists(rds_file)) {
 
 # Apply multiple testing corrections and export data
 if (exists("results") && nrow(results) > 0) {
-    # Only apply corrections to non-NA p-values
     valid_p <- !is.na(results$p_indep_vs_dep)
     if (sum(valid_p) > 0) {
         results$p_adj_bonf[valid_p] <- p.adjust(results$p_indep_vs_dep[valid_p], method = "bonferroni")
